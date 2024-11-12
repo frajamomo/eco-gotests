@@ -10,7 +10,7 @@ LABEL ginkgo.version=${GINKGO_VER}
 LABEL container.user=${CONTAINERUSER}
 
 ENV PATH "$PATH:/usr/local/go/bin:/root/go/bin"
-RUN dnf install -y tar gcc make && \
+RUN dnf install -y tar gcc make podman && \
     dnf clean metadata packages && \
     arch=$(arch | sed s/aarch64/arm64/ | sed s/x86_64/amd64/) && \
     curl -Ls https://go.dev/dl/${GO_VER}.linux-${arch}.tar.gz |tar -C /usr/local -xzf -  && \
@@ -21,4 +21,4 @@ WORKDIR /home/${CONTAINERUSER}
 RUN go install github.com/onsi/ginkgo/v2/${GINKGO_VER}
 COPY --chown=${CONTAINERUSER}:${CONTAINERUSER} . .
 
-ENTRYPOINT ["scripts/test-runner.sh"]
+ENTRYPOINT ["/bin/bash"]
