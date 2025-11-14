@@ -144,4 +144,42 @@ var _ = Describe(
 				Fail(errMsg)
 			}
 		})
+
+		It("Verify FAR pod security profile standards", reportxml.ID("66210"), func() {
+			By("Getting FAR controller pod names")
+			listOptions := metav1.ListOptions{
+				LabelSelector: fmt.Sprintf("app.kubernetes.io/name=%s", farparams.OperatorControllerPodLabel),
+			}
+			farPods, err := pod.List(APIClient, rhwaparams.RhwaOperatorNs, listOptions)
+			Expect(err).ToNot(HaveOccurred(), "Failed to get FAR controller pods")
+			Expect(len(farPods)).To(BeNumerically(">", 0), "At least one FAR controller pod should be found")
+
+			var errorMessages []string
+
+			for _, farPod := range farPods {
+				By(fmt.Sprintf("Checking seccomp profile for pod %s", farPod.Object.Name))
+
+				// Verify seccompProfile is set and has correct type
+				if farPod.Object.Spec.SecurityContext == nil {
+					errorMessages = append(errorMessages,
+						fmt.Sprintf("Pod %s has nil SecurityContext", farPod.Object.Name))
+				} else if farPod.Object.Spec.SecurityContext.SeccompProfile == nil {
+					errorMessages = append(errorMessages,
+						fmt.Sprintf("Pod %s has nil SeccompProfile", farPod.Object.Name))
+				} else if farPod.Object.Spec.SecurityContext.SeccompProfile.Type != "RuntimeDefault" {
+					errorMessages = append(errorMessages,
+						fmt.Sprintf("Expected seccompProfile not found for pod %s. Expected: RuntimeDefault, found: %s",
+							farPod.Object.Name, farPod.Object.Spec.SecurityContext.SeccompProfile.Type))
+				}
+			}
+
+			// Final validation
+			if len(errorMessages) > 0 {
+				errMsg := "Testing FAR Product Security Standards failed due to:\n"
+				for _, msg := range errorMessages {
+					errMsg += fmt.Sprintf("- %s\n", msg)
+				}
+				Fail(errMsg)
+			}
+		})
 	})
