@@ -1,4 +1,4 @@
-package capoa_tls_test
+package tls_profile_test
 
 import (
 	"runtime"
@@ -8,27 +8,27 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/reportxml"
-	. "github.com/rh-ecosystem-edge/eco-gotests/tests/assisted/ztp/capoa-tls/internal/inittools"
-	"github.com/rh-ecosystem-edge/eco-gotests/tests/assisted/ztp/capoa-tls/internal/tsparams"
-	_ "github.com/rh-ecosystem-edge/eco-gotests/tests/assisted/ztp/capoa-tls/tests"
+	. "github.com/rh-ecosystem-edge/eco-gotests/tests/assisted/ztp/tls-profile/internal/inittools"
+	"github.com/rh-ecosystem-edge/eco-gotests/tests/assisted/ztp/tls-profile/internal/tsparams"
+	_ "github.com/rh-ecosystem-edge/eco-gotests/tests/assisted/ztp/tls-profile/tests"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/internal/reporter"
 )
 
 var _, currentFile, _, _ = runtime.Caller(0)
 
-func TestCAPOATLS(t *testing.T) {
+func TestTLSProfile(t *testing.T) {
 	_, reporterConfig := GinkgoConfiguration()
 	reporterConfig.JUnitReport = GeneralConfig.GetJunitReportPath(currentFile)
 
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "CAPOA TLS Suite", Label(tsparams.Labels...), reporterConfig)
+	RunSpecs(t, "TLS Profile Suite", Label(tsparams.Labels...), reporterConfig)
 }
 
 var _ = BeforeSuite(func() {
 	By("Check if hub has valid apiClient")
 
 	if HubAPIClient == nil {
-		Skip("Cannot run CAPOA TLS suite when hub has nil api client")
+		Skip("Cannot run TLS Profile suite when hub has nil api client")
 	}
 })
 
