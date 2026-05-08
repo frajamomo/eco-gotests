@@ -151,6 +151,9 @@ var _ = Describe(
 			By("Ensuring Intermediate baseline")
 			tlsprofile.RemoveAPIServerTLSProfile(HubAPIClient)
 
+			By("Waiting for IBIO pods to restart after setup changes")
+			tlsprofile.WaitPodsRestarted(HubAPIClient, ibio)
+
 			By("Waiting for cluster to stabilize after setup")
 			tlsprofile.WaitForClusterStability(HubAPIClient, 15*time.Minute)
 
