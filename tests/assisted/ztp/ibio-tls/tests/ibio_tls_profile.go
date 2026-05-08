@@ -136,15 +136,6 @@ var _ = Describe(
 				Skip("Hub API client is nil")
 			}
 
-			By("Ensuring TLS adherence is set on the cluster")
-			ensureTLSAdherence()
-
-			By("Waiting for cluster to stabilize")
-			tlsprofile.WaitForClusterStability(HubAPIClient, 15*time.Minute)
-
-			By("Ensuring Intermediate baseline")
-			tlsprofile.RemoveAPIServerTLSProfile(HubAPIClient)
-
 			By("Verifying IBIO pods are running")
 
 			pods, err := ibio.ListPods(HubAPIClient, ibio.Namespace)
@@ -154,6 +145,16 @@ var _ = Describe(
 				Skip("IBIO pods not found - not deployed")
 			}
 
+			By("Ensuring TLS adherence is set on the cluster")
+			ensureTLSAdherence()
+
+			By("Ensuring Intermediate baseline")
+			tlsprofile.RemoveAPIServerTLSProfile(HubAPIClient)
+
+			By("Waiting for cluster to stabilize after setup")
+			tlsprofile.WaitForClusterStability(HubAPIClient, 15*time.Minute)
+
+			By("Waiting for IBIO pods to be ready")
 			tlsprofile.WaitPodsReady(HubAPIClient, ibio)
 		})
 
