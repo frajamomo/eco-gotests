@@ -78,7 +78,8 @@ var ibio = &tlsprofile.Component{
 	OldProfileCipher:    tls.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
 }
 
-func ensureTLSAdherence() {
+// ensureTLSAdherence returns true if a change was made.
+func ensureTLSAdherence() bool {
 	apiserverU := &unstructured.Unstructured{}
 	apiserverU.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   "config.openshift.io",
@@ -93,7 +94,7 @@ func ensureTLSAdherence() {
 	adherence, _, _ := unstructured.NestedString(
 		apiserverU.Object, "spec", "tlsAdherence")
 	if adherence == "StrictAllComponents" {
-		return
+		return false
 	}
 
 	By("Setting tlsAdherence to StrictAllComponents")
@@ -102,6 +103,26 @@ func ensureTLSAdherence() {
 	err = HubAPIClient.Patch(context.TODO(), apiserverU,
 		runtimeclient.RawPatch(types.MergePatchType, patch))
 	Expect(err).ToNot(HaveOccurred(), "failed to set tlsAdherence")
+
+	return true
+}
+
+// ensureIntermediateBaseline returns true if a change was made.
+func ensureIntermediateBaseline() bool {
+	apiserver := &configv1.APIServer{}
+
+	err := HubAPIClient.Get(context.TODO(),
+		runtimeclient.ObjectKey{Name: "cluster"}, apiserver)
+	Expect(err).ToNot(HaveOccurred(), "failed to get apiserver")
+
+	if apiserver.Spec.TLSSecurityProfile == nil {
+		return false
+	}
+
+	By("Removing custom TLS profile to restore Intermediate")
+	tlsprofile.RemoveAPIServerTLSProfile(HubAPIClient)
+
+	return true
 }
 
 func restoreAdherence() {
@@ -146,16 +167,18 @@ var _ = Describe(
 			}
 
 			By("Ensuring TLS adherence is set on the cluster")
-			ensureTLSAdherence()
+			adherenceChanged := ensureTLSAdherence()
 
 			By("Ensuring Intermediate baseline")
-			tlsprofile.RemoveAPIServerTLSProfile(HubAPIClient)
+			profileChanged := ensureIntermediateBaseline()
 
-			By("Waiting for IBIO pods to restart after setup changes")
-			tlsprofile.WaitPodsRestarted(HubAPIClient, ibio)
+			if adherenceChanged || profileChanged {
+				By("Waiting for IBIO pods to restart after setup changes")
+				tlsprofile.WaitPodsRestarted(HubAPIClient, ibio)
 
-			By("Waiting for cluster to stabilize after setup")
-			tlsprofile.WaitForClusterStability(HubAPIClient, 15*time.Minute)
+				By("Waiting for cluster to stabilize after setup")
+				tlsprofile.WaitForClusterStability(HubAPIClient, 15*time.Minute)
+			}
 
 			By("Waiting for IBIO pods to be ready")
 			tlsprofile.WaitPodsReady(HubAPIClient, ibio)
