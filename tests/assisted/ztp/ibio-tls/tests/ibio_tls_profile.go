@@ -469,55 +469,104 @@ var _ = Describe(
 				tlsprofile.WaitPodsReady(HubAPIClient, ibio)
 			})
 
-		// 11. Intermediate -> Custom (1 change, observe server container).
+		// 11. Two-phase test: happy path + reconnection after rollout.
 		It("Verifies server container independent TLS change detection on IBIO",
 			reportxml.ID("88933"), func() {
-				By("Applying Custom single-cipher profile")
+				// Phase 1: fresh pod with healthy watch.
+				By("Phase 1: Establishing Intermediate baseline for clean state")
+				tlsprofile.RemoveAPIServerTLSProfile(HubAPIClient)
+				tlsprofile.WaitPodsRestarted(HubAPIClient, ibio)
+				tlsprofile.WaitForClusterStability(HubAPIClient, 15*time.Minute)
+				tlsprofile.WaitPodsReady(HubAPIClient, ibio)
+
+				By("Phase 1: Applying Custom profile (watch is healthy)")
 				tlsprofile.PatchAPIServerTLSProfile(HubAPIClient,
 					customTLSProfile(customCiphers))
 
-				By("Waiting for pod restart")
+				By("Phase 1: Waiting for pod restart")
 				tlsprofile.WaitPodsRestarted(HubAPIClient, ibio)
 				tlsprofile.WaitPodsReady(HubAPIClient, ibio)
 
-				By("Checking server container logs for TLS change detection")
+				By("Phase 1: Checking server --previous logs")
 
 				pods, err := ibio.ListPods(HubAPIClient, ibio.Namespace)
 				Expect(err).ToNot(HaveOccurred(), "failed to list IBIO pods")
 				Expect(pods).ToNot(BeEmpty(), "no IBIO pods found")
 
-				targetPod := pods[0]
-
-				By("Checking previous server container logs")
-
-				container := "server"
-				previousBytes, logErr := targetPod.GetLogsWithOptions(
+				previousBytes, logErr := pods[0].GetLogsWithOptions(
 					&corev1.PodLogOptions{
-						Container: container,
+						Container: "server",
 						Previous:  true,
 					})
-				previousLogs := string(previousBytes)
 
-				if logErr == nil && previousLogs != "" {
-					if strings.Contains(previousLogs,
-						"TLS profile has changed") ||
-						strings.Contains(previousLogs,
-							"TLS adherence policy has changed") {
-						By("Server container detected TLS change and shut down")
-					} else {
-						By("Server container did not log TLS change " +
-							"detection (known bug: watchAndExitOnTLSChange " +
-							"loses API watch during kube-apiserver rollout)")
-					}
+				Expect(logErr).ToNot(HaveOccurred(),
+					"should have previous server logs after restart")
+				Expect(string(previousBytes)).To(
+					ContainSubstring("TLS profile has changed"),
+					"Phase 1: server should detect TLS change "+
+						"when watch is healthy")
+
+				// Phase 2: after kube-apiserver rollout, watch may be dead.
+				By("Phase 2: Waiting for cluster stability after rollout")
+				tlsprofile.WaitForClusterStability(HubAPIClient, 15*time.Minute)
+
+				By("Phase 2: Checking if server watch survived the rollout")
+
+				pods, err = ibio.ListPods(HubAPIClient, ibio.Namespace)
+				Expect(err).ToNot(HaveOccurred())
+
+				serverLogs, err := pods[0].GetFullLog("server")
+				Expect(err).ToNot(HaveOccurred())
+
+				watchDead := strings.Contains(serverLogs,
+					"watch on APIServer exited")
+				if watchDead {
+					By("Phase 2: Server watch is dead (ACM-33882)")
+				} else {
+					By("Phase 2: Server watch is still healthy")
 				}
 
-				By("Verifying server started successfully in new container")
+				By("Phase 2: Recording server container start time")
 
-				currentLogs, err := targetPod.GetFullLog("server")
-				Expect(err).ToNot(HaveOccurred(),
-					"failed to get server container logs")
-				Expect(currentLogs).To(
+				serverStartBefore := pods[0].Object.Status.
+					ContainerStatuses[1].State.Running.StartedAt.Time
+
+				By("Phase 2: Applying Modern profile (second change)")
+				tlsprofile.PatchAPIServerTLSProfile(HubAPIClient,
+					configv1.TLSSecurityProfile{
+						Type:   configv1.TLSProfileModernType,
+						Modern: &configv1.ModernTLSProfile{},
+					})
+
+				By("Phase 2: Waiting for manager restart")
+				tlsprofile.WaitPodsRestarted(HubAPIClient, ibio)
+				tlsprofile.WaitPodsReady(HubAPIClient, ibio)
+
+				By("Phase 2: Checking server container start time")
+
+				pods, err = ibio.ListPods(HubAPIClient, ibio.Namespace)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(pods).ToNot(BeEmpty())
+
+				serverStartAfter := pods[0].Object.Status.
+					ContainerStatuses[1].State.Running.StartedAt.Time
+
+				serverRestarted := serverStartAfter.After(serverStartBefore)
+
+				if watchDead && !serverRestarted {
+					By(fmt.Sprintf("Phase 2: BUG CONFIRMED (ACM-33882) "+
+						"- server NOT restarted. Start before: %v, "+
+						"after: %v", serverStartBefore, serverStartAfter))
+				} else if serverRestarted {
+					By("Phase 2: Server restarted successfully")
+				}
+
+				By("Verifying server is running in current container")
+
+				serverLogs, err = pods[0].GetFullLog("server")
+				Expect(err).ToNot(HaveOccurred())
+				Expect(serverLogs).To(
 					ContainSubstring("Starting https handler"),
-					"server container should have started successfully")
+					"server container should be running")
 			})
 	})
